@@ -222,7 +222,7 @@ int main(int argc, char* argv[]){
         
         for (iter = 0; iter < lim; iter ++){
 
-            #pragma omp parallel private(currentDevice, CPUthreadId, h_subGrid, d_subGrid, d_tempSub, subBytes, firstRow, lastRow)
+            #pragma omp parallel private(currentDevice, CPUthreadId, h_subGrid, subBytes, firstRow, lastRow)
             {
                 CPUthreadId = omp_get_thread_num(); // Get the id of the actual thread
 
@@ -268,23 +268,43 @@ int main(int argc, char* argv[]){
 
                 cudaMemcpy(h_subGrid, d_tempSub, subBytes, cudaMemcpyDeviceToHost);
 
-                for(int i = firstRow; i <= lastRow; i++){
+               for(int i = firstRow; i <= lastRow; i++){
                     for(int j = 1; j <= DIM; j++){
                         h_grid[i*(DIM+2)+j] = h_subGrid[i*(DIM+2)+j];
+                    }
+                }
+
+                if(iter == 0){
+                    printf("\n\n printing subgrid gpu %d after GOL \n", currentDevice);
+                    printf("firstrow: %d lastRow:%d \n", firstRow, lastRow);
+                    for(int i = firstRow; i <= lastRow; i++){
+                        for(int j = 1; j <= DIM; j++){
+                        printf("%d  ", h_subGrid[i*(DIM+2)+j]);
+                        }
+                    printf("\n");
                     }
                 }
 
             } // End pragma
         } // End iteration
 
-
+/*
         printf("\n___\n\n");
         for(int i = 1; i<=DIM; i++) {
             for(int j = 1; j<=DIM; j++) {
                 printf("%d  ", h_grid[i*(DIM+2)+j]);
             }
             printf("\n");
-        } 
+        }
+
+*/
+        for (int i = 1; i <= DIM; i++){
+            for (int j =1 ; j <= DIM; j++){
+                alive += h_grid[i*(DIM+2)+j];
+            }
+        }  // end of prama
+
+        printf("There are %d cells alive after the last iteration\n", alive);
 
         // Release memory
         cudaFree(d_grid);
