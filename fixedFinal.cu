@@ -284,7 +284,7 @@ int main(int argc, char* argv[]){
                 printf("%d  ", h_grid[i*(DIM+2)+j]);
             }
             printf("\n");
-        } // End of pragma
+        } 
 
         // Release memory
         cudaFree(d_grid);
