@@ -139,7 +139,6 @@ int main(int argc, char* argv[]){
     int i, j, iter;
     int alive = 0, lim = DIM;
     int *h_grid;
-    int *d_grid, *d_subGrid, *d_newGrid, *d_tmpGrid;
     size_t gridBytes;
     
     gridBytes = sizeof(int)*(DIM+2)*(DIM+2); // 2 added for periodic boundary condition ghost cells
@@ -166,6 +165,7 @@ int main(int argc, char* argv[]){
     dim3 cpyGridColsGridSize((int)ceil((DIM+2)/(float)cpyBlockSize.x),1,1);
     
     if (devCount == 1){
+        int *d_grid, *d_newGrid, *d_tmpGrid;
         
         // Allocate device grids - if there is more than 1 thread, It'll allocate memory in each device
         cudaMalloc(&d_grid, gridBytes);
@@ -190,7 +190,7 @@ int main(int argc, char* argv[]){
         cudaMemcpy(h_grid, d_grid, gridBytes, cudaMemcpyDeviceToHost);
         
         // calculate the total of cells alive after the iteractions
-        #pragma omp parallel for private(i,j,alive)
+        //#pragma omp parallel for private(i,j,alive)
         for (i = 1; i <= DIM; i++){
             for ( j =1 ; j <= DIM; j++){
                 alive += h_grid[i*(DIM+2)+j];
@@ -212,7 +212,7 @@ int main(int argc, char* argv[]){
         int *h_SubGridSize;
         int CPUthreadId, currentDevice, firstRow, lastRow;
         int *h_subGrid;
-        int *d_tempSub;
+        int *d_subGrid, *d_tempSub;
         size_t subBytes;
 
         h_SubGridSize = (int*)malloc(sizeof(int)*devCount); // Allocate memory for the subGridSize, which stores the number of elements in each subGrids
@@ -266,6 +266,9 @@ int main(int argc, char* argv[]){
                 // call GOL function and the new values will go to the d_tempSub grid
                 GOL<<<gridSize, blockSize>>>(d_subGrid, d_tempSub);
 
+                free(h_subGrid);
+                h_subGrid = (int*)malloc(subBytes); //allocate memory for the subGrid
+
                 cudaMemcpy(h_subGrid, d_tempSub, subBytes, cudaMemcpyDeviceToHost);
 
                for(int i = firstRow; i <= lastRow; i++){
@@ -307,8 +310,6 @@ int main(int argc, char* argv[]){
         printf("There are %d cells alive after the last iteration\n", alive);
 
         // Release memory
-        cudaFree(d_grid);
-        cudaFree(d_newGrid);
         free(h_grid);
 
         return 1;
