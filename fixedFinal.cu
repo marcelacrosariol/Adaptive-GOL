@@ -5,7 +5,7 @@
 
 #define RANDVAL 1984
 #define BLOCK_SIZE 16
-#define DIM     16 // Linear dimension of our grid - not counting ghost cells
+#define DIM     8 // Linear dimension of our grid - not counting ghost cells
 
 // Create an array that stores the number of rows of the subGrid in each device
 __host__ void RowCount(int devCount,int *subGridSize){
@@ -93,11 +93,12 @@ __global__ void ghostCols(int *grid){
     }
 }
 
-__global__ void GOL(int *grid, int *newGrid){
+__global__ void GOL(int *grid, int *newGrid, int firstRow){
     // We want id ∈ [1,DIM]
-    int iy = blockDim.y * blockIdx.y + threadIdx.y + 1;
+    int iy = blockDim.y * blockIdx.y + threadIdx.y  + firstRow;
     int ix = blockDim.x * blockIdx.x + threadIdx.x + 1;
     int id = iy * (DIM+2) + ix;
+
 
     int numNeighbors;
 
@@ -110,6 +111,9 @@ __global__ void GOL(int *grid, int *newGrid){
         + grid[id-(DIM+1)] + grid[id+(DIM+1)];
 
         int cell = grid[id];
+
+        printf("firstrow: %d ID: %d Grid[%d]: %d cell: %d Neighboors: %d \n", firstRow, id, id, grid[id], cell ,numNeighbors);
+
         // Here we have explicitly all of the game rules
         if (cell == 1 && numNeighbors < 2)
             newGrid[id] = 0;
@@ -178,7 +182,7 @@ int main(int argc, char* argv[]){
 
             ghostRows<<<cpyGridRowsGridSize, cpyBlockSize>>>(d_grid);
             ghostCols<<<cpyGridColsGridSize, cpyBlockSize>>>(d_grid);
-            GOL<<<gridSize, blockSize>>>(d_grid, d_newGrid);
+            GOL<<<gridSize, blockSize>>>(d_grid, d_newGrid,1);
 
             // Swap our grids and iterate again
             d_tmpGrid = d_grid;
@@ -234,6 +238,7 @@ int main(int argc, char* argv[]){
 
                 // Allocate device grids - if there is more than 1 thread, It'll allocate memory in each device
                 cudaMalloc(&d_subGrid, subBytes);
+                cudaMalloc(&d_tempSub, subBytes);
 
                 // Calculates the first row of the submatrix in the main matrix  - Does not count the ghost rows
                 firstRow = rowsBefore(currentDevice, h_SubGridSize) + 1;
@@ -264,7 +269,7 @@ int main(int argc, char* argv[]){
                 cudaMemcpy(d_subGrid, h_subGrid, subBytes, cudaMemcpyHostToDevice);
 
                 // call GOL function and the new values will go to the d_tempSub grid
-                GOL<<<gridSize, blockSize>>>(d_subGrid, d_tempSub);
+                GOL<<<gridSize, blockSize>>>(d_subGrid, d_tempSub, firstRow);
 
                 free(h_subGrid);
                 h_subGrid = (int*)malloc(subBytes); //allocate memory for the subGrid
@@ -291,7 +296,7 @@ int main(int argc, char* argv[]){
             } // End pragma
         } // End iteration
 
-/*
+
         printf("\n___\n\n");
         for(int i = 1; i<=DIM; i++) {
             for(int j = 1; j<=DIM; j++) {
@@ -300,7 +305,7 @@ int main(int argc, char* argv[]){
             printf("\n");
         }
 
-*/
+
         for (int i = 1; i <= DIM; i++){
             for (int j =1 ; j <= DIM; j++){
                 alive += h_grid[i*(DIM+2)+j];
@@ -311,6 +316,7 @@ int main(int argc, char* argv[]){
 
         // Release memory
         free(h_grid);
+        cudaFree(d_tempSub);
 
         return 1;
     }
