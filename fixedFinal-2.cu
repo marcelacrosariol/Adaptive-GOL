@@ -137,6 +137,7 @@ int main(int argc, char* argv[]){
     cudaGetDeviceCount(&devCount); // Get the number of devices that the system have
     printf("There are %d devices \n", devCount);
     // If there is no GPU, it is not possible to run this version of Game of Life
+
     if (devCount == 0){
         printf("There are no devices in this machine!");
         return 0; // if there is no GPU, then break the code
@@ -161,12 +162,12 @@ int main(int argc, char* argv[]){
     } // End of pragma
 
 
-printf("\n");
-for(int i = 1; i <= DIM; i++){
-for(int j = 1; j <= DIM; j++){
-printf("%d  ", h_grid[i*(DIM+2)+j]);
-}
-printf("\n");
+    printf("\n");
+    for(int i = 1; i <= DIM; i++){
+    for(int j = 1; j <= DIM; j++){
+    printf("%d  ", h_grid[i*(DIM+2)+j]);
+    }
+    printf("\n");
 }
 
 
@@ -223,9 +224,8 @@ printf("\n");
     
     if (devCount > 1){
 
-        int *h_SubGridSize;
-        int CPUthreadId, currentDevice, firstRow, lastRow;
-        int *h_subGrid;
+        int device, firstRow, lastRow;
+        int *h_subGrid, *h_SubGridSize, *h_tempGrid;
         int *d_subGrid, *d_tempSub;
         size_t subBytes;
 
@@ -242,63 +242,58 @@ printf("\n");
         printf("\n");
         }
 
-        omp_set_num_threads(devCount);
-
         for (iter = 0; iter < lim; iter ++){
 
-            #pragma omp parallel
-            {
-                #pragma omp ordered for private(currentDevice, CPUthreadId, h_subGrid, subBytes, firstRow, lastRow)
-                {
-                for (int device = 0; device < devCount; device++){
-                CPUthreadId = omp_get_thread_num(); // Get the id of the actual thread
+                #pragma omp for private(device, h_subGrid, subBytes, firstRow, lastRow)
+                    for (device = 0; device < devCount; device++){
 
-                currentDevice = CPUthreadId;
-                cudaSetDevice(device); // Set device to be used
+                        cudaSetDevice(device); // Set device to be used
+                        printf ("iter: %d device: %d \n", iter, device);
+                        subBytes = sizeof(int)* (DIM+2) * (DIM+2);  //(h_SubGridSize[device]+2) * (DIM+2);  number of rows + 2 halo/ghost rows + 2 halo/ghost columns
+                        h_subGrid = (int*)malloc(subBytes); //allocate memory for the subGrid
+                        h_tempGrid = (int*)malloc(gridBytes);
 
-                subBytes = sizeof(int)* (DIM+2) * (DIM+2);  //(h_SubGridSize[currentDevice]+2) * (DIM+2);  number of rows + 2 halo/ghost rows + 2 halo/ghost columns
-                h_subGrid = (int*)malloc(subBytes); //allocate memory for the subGrid
+                        // Allocate device grids - if there is more than 1 thread, It'll allocate memory in each device
+                        cudaMalloc(&d_subGrid, subBytes);
+                        cudaMalloc(&d_tempSub, subBytes);
 
-                // Allocate device grids - if there is more than 1 thread, It'll allocate memory in each device
-                cudaMalloc(&d_subGrid, subBytes);
-                cudaMalloc(&d_tempSub, subBytes);
+                        // Calculates the first row of the submatrix in the main matrix  - Does not count the ghost rows
+                        firstRow = rowsBefore(device, h_SubGridSize) + 1;
+                        // Calculates the last row of the submatrix in the main matrix
+                        lastRow = getLastRow(device, h_SubGridSize);
 
-                // Calculates the first row of the submatrix in the main matrix  - Does not count the ghost rows
-                firstRow = rowsBefore(currentDevice, h_SubGridSize) + 1;
-                // Calculates the last row of the submatrix in the main matrix
-                lastRow = getLastRow(currentDevice, h_SubGridSize);
+                        buildSubGrid(h_grid, h_subGrid, firstRow, lastRow, device);
 
-                buildSubGrid(h_grid, h_subGrid, firstRow, lastRow, currentDevice);
+                        printf("\nfirstrow: %d lastRow:%d \n", firstRow, lastRow);
 
-                    printf("iter : %d \n", iter);
-                    printf("\n printing subgrid gpu %d  \n", currentDevice);
-                    printf("firstrow: %d lastRow:%d \n", firstRow, lastRow);
-                    for(int i = firstRow-1; i <= lastRow+1; i++){
-                        for(int j = 0; j <= DIM+1; j++){
-                            printf("%d  ", h_subGrid[i*(DIM+2)+j]);
+                        cudaMemcpy(d_subGrid, h_subGrid, subBytes, cudaMemcpyHostToDevice);
+
+
+                        for(int i = firstRow-1; i <= lastRow+1; i++){
+                            for(int j = 0; j <= DIM+1; j++){
+                                printf("%d  ", h_subGrid[i*(DIM+2)+j]);
+                            }
+                            printf("\n");
                         }
-                        printf("\n");
-                    }
 
 
-                cudaMemcpy(d_subGrid, h_subGrid, subBytes, cudaMemcpyHostToDevice);
+                        // call GOL function and the new values will go to the d_tempSub grid
+                        GOL<<<gridSize, blockSize>>>(d_subGrid, d_tempSub, firstRow);
 
-                // call GOL function and the new values will go to the d_tempSub grid
-                GOL<<<gridSize, blockSize>>>(d_subGrid, d_tempSub, firstRow);
+                        free(h_subGrid);
+                        h_subGrid = (int*)malloc(subBytes); //allocate memory for the subGrid
 
-                free(h_subGrid);
-                h_subGrid = (int*)malloc(subBytes); //allocate memory for the subGrid
+                        cudaMemcpy(h_subGrid, d_tempSub, subBytes, cudaMemcpyDeviceToHost);
 
-                cudaMemcpy(h_subGrid, d_tempSub, subBytes, cudaMemcpyDeviceToHost);
+                        for(int i = firstRow; i <= lastRow; i++){
+                            for(int j = 1; j <= DIM; j++){
+                                h_tempGrid[i*(DIM+2)+j] = h_subGrid[i*(DIM+2)+j];
+                            }
+                        }
+                    } // End pragma
 
-               for(int i = firstRow; i <= lastRow; i++){
-                    for(int j = 1; j <= DIM; j++){
-                        h_grid[i*(DIM+2)+j] = h_subGrid[i*(DIM+2)+j];
-                    }
-                }
-}}} // End pragma
+        memcpy(h_grid, h_tempGrid, gridBytes);
         } // End iteration
-
 
         printf("\n___\n\n");
         for(int i = 1; i<=DIM; i++) {
