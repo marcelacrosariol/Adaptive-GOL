@@ -1,3 +1,3 @@
 # multi-gpu-gol
 
-/Users/m3a/Desktop/Nvidia_logo.png
+https://www.olcf.ornl.gov/wp-content/gallery/titan/titan2.jpg
